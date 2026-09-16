@@ -14,6 +14,25 @@ final class AppStore: ObservableObject {
     }
     @Published var activeWorkspaceID: UUID?
 
+    /// The entries of the new-terminal menu, in menu order.
+    @Published var launchers: [Launcher] = AppStore.loadLaunchers() {
+        didSet {
+            if launchers.isEmpty { launchers = Launcher.defaults }
+            if let data = try? JSONEncoder().encode(launchers) { UserDefaults.standard.set(data, forKey: "launchers") }
+        }
+    }
+
+    /// The workspace for the "Run Command" prompt. A non-nil value shows the prompt.
+    @Published var commandPromptWorkspaceID: UUID?
+
+    private static func loadLaunchers() -> [Launcher] {
+        guard let data = UserDefaults.standard.data(forKey: "launchers"),
+              let saved = try? JSONDecoder().decode([Launcher].self, from: data), !saved.isEmpty else {
+            return Launcher.defaults
+        }
+        return saved
+    }
+
     // MARK: Appearance settings
 
     @Published var defaultThemeID: String = UserDefaults.standard.string(forKey: "theme") ?? "basic" {
@@ -128,12 +147,27 @@ final class AppStore: ObservableObject {
 
     // MARK: Terminals
 
-    func newSession(_ kind: TerminalKind, in workspaceID: UUID? = nil) {
+    func newSession(_ launcher: Launcher, in workspaceID: UUID? = nil) {
         guard let workspace = workspaces.first(where: { $0.id == workspaceID }) ?? activeWorkspace else { return }
-        let number = sessions.filter { $0.workspaceID == workspace.id && $0.kind == kind }.count + 1
-        add(TerminalSession(workspace: workspace, kind: kind, number: number))
+        let number = sessions.filter { $0.workspaceID == workspace.id && $0.launcher.id == launcher.id }.count + 1
+        add(TerminalSession(workspace: workspace, launcher: launcher, number: number))
         activeWorkspaceID = workspace.id
         selection = sessions.last?.id
+    }
+
+    /// Shows the prompt for a one-time command.
+    func promptForCommand(in workspaceID: UUID? = nil) {
+        commandPromptWorkspaceID = workspaceID ?? activeWorkspace?.id
+    }
+
+    /// Starts a terminal that runs a command one time. With `save`, the command also becomes a launcher.
+    func runCommand(_ command: String, in workspaceID: UUID?, save: Bool) {
+        let command = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else { return }
+        let name = command.components(separatedBy: " ").first ?? command
+        let launcher = Launcher(name: name, symbol: "chevron.right", command: command)
+        if save { launchers.append(launcher) }
+        newSession(launcher, in: workspaceID)
     }
 
     private func add(_ session: TerminalSession) {

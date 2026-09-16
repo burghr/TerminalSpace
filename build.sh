@@ -40,9 +40,9 @@ touch "$APP"
 echo "Built $APP"
 
 if [[ "${1:-}" == "--run" ]]; then
-    if pkill -TERM -x TerminalSpace; then
+    if pkill -TERM -f "TerminalSpace.app/Contents/MacOS/TerminalSpace"; then
         # Wait until the old copy stops, so that it finishes its save.
-        for _ in {1..50}; do pgrep -x TerminalSpace >/dev/null || break; sleep 0.1; done
+        for _ in {1..50}; do pgrep -f "TerminalSpace.app/Contents/MacOS/TerminalSpace" >/dev/null || break; sleep 0.1; done
     fi
     open "$APP"
     echo "Opened $APP"

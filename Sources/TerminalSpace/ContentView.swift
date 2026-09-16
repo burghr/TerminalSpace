@@ -7,6 +7,7 @@ struct ContentView: View {
 
     @State private var renameTarget: RenameTarget?
     @State private var renameText = ""
+    @State private var commandText = ""
 
     enum RenameTarget {
         case workspace(UUID)
@@ -39,6 +40,15 @@ struct ContentView: View {
             TextField("Name", text: $renameText)
             Button("Rename") { applyRename() }
             Button("Cancel", role: .cancel) {}
+        }
+        .alert("Run Command", isPresented: Binding(get: { store.commandPromptWorkspaceID != nil },
+                                                   set: { if !$0 { store.commandPromptWorkspaceID = nil } })) {
+            TextField("ssh user@host", text: $commandText)
+            Button("Run") { runCommand(save: false) }
+            Button("Run and Save as Launcher") { runCommand(save: true) }
+            Button("Cancel", role: .cancel) { commandText = "" }
+        } message: {
+            Text("The command starts in a new terminal. When the command stops, the terminal continues as a shell.")
         }
     }
 
@@ -112,8 +122,8 @@ struct ContentView: View {
                 Text(store.activeWorkspace.map { "No terminal is open in \($0.name)." } ?? "No workspace")
                     .foregroundStyle(.secondary)
                 HStack {
-                    ForEach(TerminalKind.allCases) { kind in
-                        Button { store.newSession(kind) } label: { Label(kind.label, systemImage: kind.symbol) }
+                    ForEach(store.launchers.prefix(4)) { launcher in
+                        Button { store.newSession(launcher) } label: { Label(launcher.name, systemImage: launcher.symbol) }
                     }
                 }
                 .disabled(store.activeWorkspace == nil)
@@ -133,6 +143,11 @@ struct ContentView: View {
                 Text(title)
             }
         }
+    }
+
+    private func runCommand(save: Bool) {
+        store.runCommand(commandText, in: store.commandPromptWorkspaceID, save: save)
+        commandText = ""
     }
 
     private func beginRename(_ target: RenameTarget, _ current: String) {
@@ -156,10 +171,17 @@ struct NewTerminalMenu: View {
 
     var body: some View {
         Menu {
-            ForEach(TerminalKind.allCases) { kind in
-                Button { store.newSession(kind, in: workspaceID) } label: {
-                    Label(kind.label, systemImage: kind.symbol)
+            ForEach(store.launchers) { launcher in
+                Button { store.newSession(launcher, in: workspaceID) } label: {
+                    Label(launcher.name, systemImage: launcher.symbol)
                 }
+            }
+            Divider()
+            Button { store.promptForCommand(in: workspaceID) } label: {
+                Label("Run Command…", systemImage: "chevron.right")
+            }
+            SettingsLink {
+                Label("Edit Launchers…", systemImage: "slider.horizontal.3")
             }
         } label: {
             Label("New Terminal", systemImage: "plus")
@@ -204,7 +226,7 @@ struct WorkspaceBar: View {
             Image(systemName: "chevron.right")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            Label(session.displayName, systemImage: session.kind.symbol)
+            Label(session.displayName, systemImage: session.launcher.symbol)
                 .lineLimit(1)
             Spacer()
             Text((workspace.directory as NSString).abbreviatingWithTildeInPath)
@@ -277,7 +299,7 @@ struct SessionRow: View {
                 .lineLimit(1)
                 .foregroundStyle(session.exited ? .secondary : .primary)
         } icon: {
-            Image(systemName: session.kind.symbol)
+            Image(systemName: session.launcher.symbol)
                 .foregroundStyle(tint)
         }
         // Dim terminals a little in the other workspaces, and more after their process stops.

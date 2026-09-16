@@ -2,27 +2,48 @@ import AppKit
 import Darwin
 import SwiftTerm
 
-/// The kind of program that a new terminal starts.
-enum TerminalKind: String, CaseIterable, Codable, Identifiable {
-    case plain, claude, opencode
+/// Special restore support for a tool. The app adds flags to the command, so that the tool resumes after a restart.
+enum LaunchIntegration: String, Codable, CaseIterable, Identifiable {
+    case none, claude, opencode
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .plain: return "Terminal"
-        case .claude: return "Claude"
+        case .none: return "None"
+        case .claude: return "Claude Code"
         case .opencode: return "opencode"
         }
     }
+}
 
-    var symbol: String {
-        switch self {
-        case .plain: return "terminal"
-        case .claude: return "sparkles"
-        case .opencode: return "chevron.left.forwardslash.chevron.right"
-        }
-    }
+/// An entry in the new-terminal menu. An empty command starts only a login shell.
+struct Launcher: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var name: String
+    var symbol: String
+    var command: String
+    var integration: LaunchIntegration = .none
+    /// For a launcher without integration: run the command again when the app restores the terminal.
+    var rerunOnRestore = true
+
+    static let terminalID = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
+    static let claudeID = UUID(uuidString: "00000000-0000-4000-8000-000000000002")!
+    static let opencodeID = UUID(uuidString: "00000000-0000-4000-8000-000000000003")!
+
+    static let defaults = [
+        Launcher(id: terminalID, name: "Terminal", symbol: "terminal", command: ""),
+        Launcher(id: claudeID, name: "Claude", symbol: "sparkles", command: "claude", integration: .claude),
+        Launcher(id: opencodeID, name: "opencode", symbol: "chevron.left.forwardslash.chevron.right",
+                 command: "opencode", integration: .opencode),
+    ]
+
+    /// The icons that the launcher editor offers.
+    static let symbols = [
+        "terminal", "sparkles", "chevron.left.forwardslash.chevron.right", "network", "server.rack",
+        "externaldrive", "cloud", "globe", "lock.shield", "cpu", "hammer", "wrench.and.screwdriver",
+        "shippingbox", "cube", "bolt", "doc.text", "chart.bar", "gearshape", "house", "star",
+    ]
 }
 
 enum AppPaths {
@@ -72,18 +93,63 @@ struct Workspace: Identifiable, Codable, Equatable {
 struct SavedSession: Codable {
     var id: UUID
     var workspaceID: UUID
-    var kind: TerminalKind
+    /// A copy of the launcher from when the terminal started. A later change to the launcher does not change the terminal.
+    var launcher: Launcher
     var defaultName: String
     var customName: String?
     var directory: String
-    /// The current Claude conversation ID. Other kinds do not use it.
+    /// The current Claude conversation ID. Other launchers do not use it.
     var toolSessionID: UUID?
+
+    init(id: UUID, workspaceID: UUID, launcher: Launcher, defaultName: String, customName: String? = nil,
+         directory: String, toolSessionID: UUID?) {
+        self.id = id
+        self.workspaceID = workspaceID
+        self.launcher = launcher
+        self.defaultName = defaultName
+        self.customName = customName
+        self.directory = directory
+        self.toolSessionID = toolSessionID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, workspaceID, launcher, kind, defaultName, customName, directory, toolSessionID
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        workspaceID = try c.decode(UUID.self, forKey: .workspaceID)
+        defaultName = try c.decode(String.self, forKey: .defaultName)
+        customName = try c.decodeIfPresent(String.self, forKey: .customName)
+        directory = try c.decode(String.self, forKey: .directory)
+        toolSessionID = try c.decodeIfPresent(UUID.self, forKey: .toolSessionID)
+        if let launcher = try c.decodeIfPresent(Launcher.self, forKey: .launcher) {
+            self.launcher = launcher
+        } else {
+            // Older versions saved a "kind" of plain, claude, or opencode.
+            let kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "plain"
+            let index = ["plain": 0, "claude": 1, "opencode": 2][kind] ?? 0
+            launcher = Launcher.defaults[index]
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(workspaceID, forKey: .workspaceID)
+        try c.encode(launcher, forKey: .launcher)
+        try c.encode(defaultName, forKey: .defaultName)
+        try c.encodeIfPresent(customName, forKey: .customName)
+        try c.encode(directory, forKey: .directory)
+        try c.encodeIfPresent(toolSessionID, forKey: .toolSessionID)
+    }
 }
 
 /// One terminal in a workspace. The terminal view stays alive when the sidebar selection changes.
 final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProcessTerminalViewDelegate {
     let id: UUID
-    let kind: TerminalKind
+    let launcher: Launcher
     let view: LocalProcessTerminalView
     let defaultName: String
     private let initialToolSessionID: UUID?
@@ -103,11 +169,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     }
 
     /// Starts a new terminal.
-    convenience init(workspace: Workspace, kind: TerminalKind, number: Int) {
-        let saved = SavedSession(id: UUID(), workspaceID: workspace.id, kind: kind,
-                                 defaultName: number > 1 ? "\(kind.label) \(number)" : kind.label,
+    convenience init(workspace: Workspace, launcher: Launcher, number: Int) {
+        let saved = SavedSession(id: UUID(), workspaceID: workspace.id, launcher: launcher,
+                                 defaultName: number > 1 ? "\(launcher.name) \(number)" : launcher.name,
                                  directory: workspace.directory,
-                                 toolSessionID: kind == .claude ? UUID() : nil)
+                                 toolSessionID: launcher.integration == .claude ? UUID() : nil)
         self.init(saved: saved, restoring: false, scrollback: nil)
     }
 
@@ -115,7 +181,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     init(saved: SavedSession, restoring: Bool, scrollback: String?) {
         id = saved.id
         workspaceID = saved.workspaceID
-        kind = saved.kind
+        launcher = saved.launcher
         defaultName = saved.defaultName
         customName = saved.customName
         initialToolSessionID = saved.toolSessionID
@@ -133,19 +199,23 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     }
 
     private func command(restoring: Bool) -> String? {
-        switch kind {
-        case .plain:
-            return nil
+        let base = launcher.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch launcher.integration {
+        case .none:
+            if base.isEmpty || (restoring && !launcher.rerunOnRestore) { return nil }
+            return base
         case .claude:
+            let claude = base.isEmpty ? "claude" : base
             let settings = "--settings '\(AppPaths.claudeSettings.path)'"
-            guard let sessionID = initialToolSessionID?.uuidString.lowercased() else { return "claude \(settings)" }
+            guard let sessionID = initialToolSessionID?.uuidString.lowercased() else { return "\(claude) \(settings)" }
             // Claude writes the conversation file only after the first message.
             if restoring && Self.claudeConversationExists(sessionID) {
-                return "claude \(settings) --resume \(sessionID)"
+                return "\(claude) \(settings) --resume \(sessionID)"
             }
-            return "claude \(settings) --session-id \(sessionID)"
+            return "\(claude) \(settings) --session-id \(sessionID)"
         case .opencode:
-            return restoring ? "opencode --continue" : "opencode"
+            let opencode = base.isEmpty ? "opencode" : base
+            return restoring ? "\(opencode) --continue" : opencode
         }
     }
 
@@ -188,7 +258,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
 
     /// The current folder of the shell. Claude and opencode keep their start folder, because they resume by folder.
     var currentDirectory: String {
-        guard kind == .plain, !exited else { return startDirectory }
+        guard launcher.integration == .none, !exited else { return startDirectory }
         let pid = view.process.shellPid
         guard pid > 0 else { return startDirectory }
 
@@ -201,9 +271,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         return path.isEmpty ? startDirectory : path
     }
 
-    /// The last lines of output, as plain text. Only a Terminal kind uses it, because Claude and opencode show their history again.
+    /// The last lines of output, as plain text. Claude and opencode do not use it, because they show their history again.
     func scrollbackText(maxLines: Int = 2000) -> String? {
-        guard kind == .plain else { return nil }
+        guard launcher.integration == .none else { return nil }
         let data = view.getTerminal().getBufferAsData(kind: .normal)
         guard let text = String(data: data, encoding: .utf8) else { return nil }
         var lines = text.components(separatedBy: "\n")
@@ -217,7 +287,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
 
     /// The conversation that Claude uses now. The ID changes after /resume or /clear in Claude.
     var toolSessionID: UUID? {
-        guard kind == .claude else { return nil }
+        guard launcher.integration == .claude else { return nil }
         if let data = try? Data(contentsOf: claudeStateURL),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let value = json["session_id"] as? String, let current = UUID(uuidString: value) {
@@ -231,7 +301,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     }
 
     var saved: SavedSession {
-        SavedSession(id: id, workspaceID: workspaceID, kind: kind, defaultName: defaultName,
+        SavedSession(id: id, workspaceID: workspaceID, launcher: launcher, defaultName: defaultName,
                      customName: customName, directory: currentDirectory, toolSessionID: toolSessionID)
     }
 
