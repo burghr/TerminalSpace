@@ -135,6 +135,22 @@ final class AppStore: ObservableObject {
         workspaces[index].color = color
     }
 
+    /// Moves a workspace up (negative offset) or down (positive offset) in the sidebar.
+    func moveWorkspace(_ id: UUID, by offset: Int) {
+        guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        let target = min(max(index + offset, 0), workspaces.count - 1)
+        guard target != index else { return }
+        workspaces.insert(workspaces.remove(at: index), at: target)
+    }
+
+    /// Moves a workspace to the position of a different workspace. The other workspaces move one step to make space.
+    func moveWorkspace(_ id: UUID, onto targetID: UUID) {
+        guard id != targetID,
+              let index = workspaces.firstIndex(where: { $0.id == id }),
+              let target = workspaces.firstIndex(where: { $0.id == targetID }) else { return }
+        workspaces.insert(workspaces.remove(at: index), at: target)
+    }
+
     func workspace(for session: TerminalSession) -> Workspace? {
         workspaces.first { $0.id == session.workspaceID }
     }

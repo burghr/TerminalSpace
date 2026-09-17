@@ -71,6 +71,7 @@ struct ContentView: View {
                     }
                 } header: {
                     WorkspaceHeader(store: store, workspace: workspace)
+                        .draggable(Workspace.dragPrefix + workspace.id.uuidString)
                         .contextMenu {
                             Button("Rename…") { beginRename(.workspace(workspace.id), workspace.name) }
                             Menu(workspace.themeAccent == nil ? "Color" : "Color (the theme sets it)") {
@@ -97,6 +98,11 @@ struct ContentView: View {
                             Button("Show in Finder") {
                                 NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: workspace.directory)
                             }
+                            Divider()
+                            Button("Move Up") { store.moveWorkspace(workspace.id, by: -1) }
+                                .disabled(store.workspaces.first?.id == workspace.id)
+                            Button("Move Down") { store.moveWorkspace(workspace.id, by: 1) }
+                                .disabled(store.workspaces.last?.id == workspace.id)
                             Divider()
                             Button("Remove Workspace", role: .destructive) { store.removeWorkspace(workspace.id) }
                         }
@@ -190,6 +196,14 @@ struct NewTerminalMenu: View {
 }
 
 extension Workspace {
+    /// A drag of a workspace carries this prefix before the ID. A drag of a terminal carries only the ID.
+    static let dragPrefix = "workspace:"
+
+    static func draggedID(_ item: String) -> UUID? {
+        guard item.hasPrefix(dragPrefix) else { return nil }
+        return UUID(uuidString: String(item.dropFirst(dragPrefix.count)))
+    }
+
     /// The theme of the workspace sets the color, if the theme has one. Otherwise the workspace color applies.
     var themeAccent: SwiftUI.Color? {
         guard let theme, let hex = TerminalTheme.all.first(where: { $0.id == theme })?.accentHex else { return nil }
@@ -281,7 +295,12 @@ struct WorkspaceHeader: View {
         .onTapGesture { store.activeWorkspaceID = workspace.id }
         // A drop on the header adds the terminal at the end. An empty workspace has no rows, so it needs this target.
         .dropDestination(for: String.self) { items, _ in
-            store.moveSessions(items.compactMap(UUID.init), to: workspace.id, at: nil)
+            // A dragged workspace takes the place of this workspace. A dragged terminal moves into this workspace.
+            if let dragged = items.lazy.compactMap(Workspace.draggedID).first {
+                store.moveWorkspace(dragged, onto: workspace.id)
+            } else {
+                store.moveSessions(items.compactMap(UUID.init), to: workspace.id, at: nil)
+            }
             return true
         } isTargeted: { dropTargeted = $0 }
         .help(workspace.directory)

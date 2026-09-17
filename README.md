@@ -18,7 +18,7 @@ The app uses [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) for termina
 - **Workspaces:** A sidebar shows your workspaces. The terminals of each workspace show under it.
 - **Launchers:** The new-terminal menu shows a list of launchers. Each launcher has a name, an icon, and a command. The default launchers are Terminal, Claude, and opencode. Add your own, for example `ssh user@host`. The command starts in the workspace folder. When it stops, the tab continues as a normal shell.
 - **Run Command:** Start any command one time, or save it as a launcher.
-- **Drag and drop:** Drag a terminal to a different workspace, or to a different position.
+- **Drag and drop:** Drag a terminal to a different workspace, or to a different position. Drag a workspace name onto a different workspace to change the order of workspaces.
 - **Restore:** When you quit, the app saves your terminals. At the next start:
   - A Terminal tab shows its last output and opens a shell in its last folder.
   - A tab from a custom launcher shows its last output. By default, it runs its command again.
@@ -67,7 +67,7 @@ To change the icon, edit `Scripts/make-icon.swift`, then run `swift Scripts/make
 
 The launcher shortcuts follow the order of the launchers in Settings.
 
-Right-click a workspace to rename it, or to set its color or theme. Right-click a terminal to rename or close it.
+Right-click a workspace to rename it, to set its color or theme, or to move it up or down. Right-click a terminal to rename or close it.
 
 ## Launchers
 
