@@ -63,6 +63,10 @@ struct ContentView: View {
                             .draggable(session.id.uuidString)
                             .contextMenu {
                                 Button("Rename…") { beginRename(.session(session.id), session.displayName) }
+                                if session.launcher.integration == .claude {
+                                    Button("Name Claude Session") { store.nameClaudeSessions([session]) }
+                                        .disabled(session.exited)
+                                }
                                 Button("Close") { store.closeSession(session.id) }
                             }
                     }
@@ -95,6 +99,10 @@ struct ContentView: View {
                                     themeButton(workspace, theme.id, theme.name)
                                 }
                             }
+                            Button("Name Claude Sessions") {
+                                store.nameClaudeSessions(store.claudeSessions(in: workspace.id))
+                            }
+                            .disabled(store.claudeSessions(in: workspace.id).isEmpty)
                             Button("Show in Finder") {
                                 NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: workspace.directory)
                             }
@@ -328,12 +336,49 @@ struct SessionRow: View {
     }
 }
 
+/// The view under the terminal. It takes files and text that you drag into the window.
+/// SwiftTerm does not accept drops, so the drop lands here.
+final class TerminalDropView: NSView {
+    weak var session: TerminalSession?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([.fileURL, .string])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        text(from: sender) == nil ? [] : .copy
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let text = text(from: sender) else { return false }
+        session?.insert(text: text)
+        return true
+    }
+
+    /// Files become quoted paths with a space at the end. Text goes in as it is.
+    private func text(from sender: NSDraggingInfo) -> String? {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        if let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL],
+           !urls.isEmpty {
+            return urls.map { TerminalSession.shellQuoted($0.path) }.joined(separator: " ") + " "
+        }
+        if let string = sender.draggingPasteboard.string(forType: .string), !string.isEmpty {
+            return string
+        }
+        return nil
+    }
+}
+
 /// Hosts the long-lived terminal view of a session inside SwiftUI.
 struct TerminalHost: NSViewRepresentable {
     let session: TerminalSession
 
     func makeNSView(context: Context) -> NSView {
-        let container = NSView()
+        let container = TerminalDropView()
+        container.session = session
         let view = session.view
         container.wantsLayer = true
         container.layer?.backgroundColor = view.nativeBackgroundColor.cgColor

@@ -186,6 +186,30 @@ final class AppStore: ObservableObject {
         newSession(launcher, in: workspaceID)
     }
 
+    /// Running Claude terminals, in sidebar order. A nil workspace gives the terminals of all workspaces.
+    func claudeSessions(in workspaceID: UUID? = nil) -> [TerminalSession] {
+        workspaces.filter { workspaceID == nil || $0.id == workspaceID }.flatMap { workspace in
+            sessions(in: workspace).filter { $0.launcher.integration == .claude && !$0.exited }
+        }
+    }
+
+    /// The Claude session name for a terminal. A tab name that you set wins.
+    /// Otherwise the name is the workspace name, with a number for the second and later Claude terminals.
+    func claudeName(for session: TerminalSession) -> String? {
+        if let custom = session.customName, !custom.isEmpty { return custom }
+        guard let workspace = workspace(for: session) else { return nil }
+        let unnamed = claudeSessions(in: workspace.id).filter { ($0.customName ?? "").isEmpty }
+        let number = (unnamed.firstIndex { $0 === session } ?? 0) + 1
+        let base = workspace.name.trimmingCharacters(in: .whitespaces)
+        return number > 1 ? "\(base) \(number)" : base
+    }
+
+    func nameClaudeSessions(_ targets: [TerminalSession]) {
+        for session in targets {
+            if let name = claudeName(for: session) { session.renameClaudeSession(to: name) }
+        }
+    }
+
     private func add(_ session: TerminalSession) {
         // The sidebar shows the title of each session, so publish its changes.
         sessionObservers[session.id] = session.objectWillChange.sink { [weak self] _ in

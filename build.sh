@@ -4,9 +4,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# If the Xcode license is not accepted, use the Command Line Tools.
-if ! xcrun --find swift >/dev/null 2>&1 && [[ -d /Library/Developer/CommandLineTools ]]; then
+# Use the Command Line Tools if Xcode cannot build the package: the Xcode license is not accepted,
+# or the Metal toolchain for the SwiftTerm shaders is not installed.
+if [[ -z "${DEVELOPER_DIR:-}" && -d /Library/Developer/CommandLineTools ]] \
+    && ! { xcrun --find swift && xcrun metal --version; } >/dev/null 2>&1; then
     export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+    echo "Using the Command Line Tools"
 fi
 
 swift build -c release

@@ -22,6 +22,9 @@ struct TerminalSpaceApp: App {
                 Divider()
                 Button("Run Command…") { store.promptForCommand() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
+                Divider()
+                Button("Name All Claude Sessions") { store.nameClaudeSessions(store.claudeSessions()) }
+                    .disabled(store.claudeSessions().isEmpty)
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Close Terminal") { store.closeSession(store.selection) }

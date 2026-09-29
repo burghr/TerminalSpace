@@ -162,6 +162,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// The folder where the process started.
     private let startDirectory: String
 
+    /// The display name for a new Claude session. A restored session keeps the name that it has.
+    private let claudeName: String?
+
     var displayName: String {
         if let customName, !customName.isEmpty { return customName }
         if let processTitle, !processTitle.isEmpty { return processTitle }
@@ -174,14 +177,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
                                  defaultName: number > 1 ? "\(launcher.name) \(number)" : launcher.name,
                                  directory: workspace.directory,
                                  toolSessionID: launcher.integration == .claude ? UUID() : nil)
-        self.init(saved: saved, restoring: false, scrollback: nil)
+        // Name a new Claude session after its workspace, for example "Stock Watch" or "Stock Watch 2".
+        let base = workspace.name.trimmingCharacters(in: .whitespaces)
+        let name = number > 1 ? "\(base) \(number)" : base
+        self.init(saved: saved, restoring: false, scrollback: nil, claudeName: name)
     }
 
     /// Opens a terminal from saved data. A restored Claude or opencode terminal resumes its conversation.
-    init(saved: SavedSession, restoring: Bool, scrollback: String?) {
+    init(saved: SavedSession, restoring: Bool, scrollback: String?, claudeName: String? = nil) {
         id = saved.id
         workspaceID = saved.workspaceID
         launcher = saved.launcher
+        self.claudeName = claudeName
         defaultName = saved.defaultName
         customName = saved.customName
         initialToolSessionID = saved.toolSessionID
@@ -212,11 +219,24 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             if restoring && Self.claudeConversationExists(sessionID) {
                 return "\(claude) \(settings) --resume \(sessionID)"
             }
-            return "\(claude) \(settings) --session-id \(sessionID)"
+            return "\(claude) \(settings) --session-id \(sessionID)\(nameFlag(for: claude))"
         case .opencode:
             let opencode = base.isEmpty ? "opencode" : base
             return restoring ? "\(opencode) --continue" : opencode
         }
+    }
+
+    /// The --name flag for a new Claude session. The flag is not added if the launcher command already sets a name.
+    private func nameFlag(for command: String) -> String {
+        guard let claudeName, !claudeName.isEmpty else { return "" }
+        let words = command.split(separator: " ")
+        if words.contains(where: { $0 == "-n" || $0 == "--name" || $0.hasPrefix("--name=") }) { return "" }
+        return " --name " + Self.shellQuoted(claudeName)
+    }
+
+    /// Puts a value in single quotes for the shell. A single quote in the value becomes '\''.
+    static func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func start(command: String?) {
@@ -307,6 +327,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
 
     func terminate() {
         if !exited { view.terminate() }
+    }
+
+    /// Types text into the terminal, as if you typed it. It does not add a Return.
+    func insert(text: String) {
+        guard !exited, !text.isEmpty else { return }
+        view.send(txt: text)
+    }
+
+    /// Types "/rename <name>" and Return into a running Claude session.
+    /// If Claude is busy, Claude runs the command after the current turn.
+    func renameClaudeSession(to name: String) {
+        guard launcher.integration == .claude, !exited, !name.isEmpty else { return }
+        view.send(txt: "/rename \(name)\r")
     }
 
     // MARK: LocalProcessTerminalViewDelegate

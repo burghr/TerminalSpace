@@ -18,6 +18,8 @@ The app uses [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) for termina
 - **Workspaces:** A sidebar shows your workspaces. The terminals of each workspace show under it.
 - **Launchers:** The new-terminal menu shows a list of launchers. Each launcher has a name, an icon, and a command. The default launchers are Terminal, Claude, and opencode. Add your own, for example `ssh user@host`. The command starts in the workspace folder. When it stops, the tab continues as a normal shell.
 - **Run Command:** Start any command one time, or save it as a launcher.
+- **Drag files in:** Drag a file or a folder into a terminal to type its path. Dragged text also goes in.
+- **Claude session names:** A new Claude session gets the name of its workspace. The name shows in the Claude prompt box, in the `/resume` list, and in the tab.
 - **Drag and drop:** Drag a terminal to a different workspace, or to a different position. Drag a workspace name onto a different workspace to change the order of workspaces.
 - **Restore:** When you quit, the app saves your terminals. At the next start:
   - A Terminal tab shows its last output and opens a shell in its last folder.
@@ -48,7 +50,7 @@ open build/TerminalSpace.app
 Options:
 
 - `./build.sh --run` stops the running copy, then opens the new build. The running copy saves its terminals before it stops.
-- If the Xcode license is not accepted, `build.sh` uses the Command Line Tools.
+- `build.sh` uses the Command Line Tools if Xcode cannot build the package, for example when the Xcode license is not accepted, or when the Metal toolchain for the SwiftTerm shaders is missing. To install that toolchain, run `xcodebuild -downloadComponent MetalToolchain`.
 
 To change the icon, edit `Scripts/make-icon.swift`, then run `swift Scripts/make-icon.swift`.
 
@@ -83,8 +85,10 @@ Open **Settings > Launchers** to add, edit, remove, or reorder launchers. Each l
 Resume support controls what happens when TerminalSpace restores a terminal:
 
 - **None:** An option runs the command again. For example, an SSH launcher connects again.
-- **Claude Code:** TerminalSpace adds `--settings` and a session ID to the command. You can add your own flags, for example `claude --model opus`.
+- **Claude Code:** TerminalSpace adds `--settings`, a session ID, and `--name` with the workspace name. You can add your own flags, for example `claude --model opus`.
 - **opencode:** TerminalSpace adds `--continue` to the command.
+
+To name Claude sessions that are already open, use **File > Name All Claude Sessions**, or **Name Claude Sessions** in the menu of a workspace, or **Name Claude Session** in the menu of a terminal. TerminalSpace then types `/rename` into those terminals. It uses your tab name, or the workspace name.
 
 A terminal keeps a copy of its launcher from when it started. A change to a launcher does not change terminals that are already open.
 
