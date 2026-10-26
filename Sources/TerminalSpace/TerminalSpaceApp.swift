@@ -65,6 +65,19 @@ enum LauncherShortcut {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var termSource: DispatchSourceSignal?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Receive terminalspace:// links. Register here, so that a link that starts the app also arrives.
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(handleGetURL(_:withReply:)),
+            forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+    }
+
+    @objc private func handleGetURL(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
+        guard let text = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: text) else { return }
+        AppStore.shared.open(url)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // SIGTERM (for example from `build.sh --run`) saves the terminals and quits without the confirmation alert.
         signal(SIGTERM, SIG_IGN)

@@ -165,6 +165,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     /// The display name for a new Claude session. A restored session keeps the name that it has.
     private let claudeName: String?
 
+    /// Extra arguments for the command of a new terminal, for example from a link action.
+    /// A restored terminal does not use them again.
+    private let initialArguments: [String]
+
     var displayName: String {
         if let customName, !customName.isEmpty { return customName }
         if let processTitle, !processTitle.isEmpty { return processTitle }
@@ -172,7 +176,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
     }
 
     /// Starts a new terminal.
-    convenience init(workspace: Workspace, launcher: Launcher, number: Int) {
+    convenience init(workspace: Workspace, launcher: Launcher, number: Int, arguments: [String] = []) {
         let saved = SavedSession(id: UUID(), workspaceID: workspace.id, launcher: launcher,
                                  defaultName: number > 1 ? "\(launcher.name) \(number)" : launcher.name,
                                  directory: workspace.directory,
@@ -180,15 +184,16 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         // Name a new Claude session after its workspace, for example "Stock Watch" or "Stock Watch 2".
         let base = workspace.name.trimmingCharacters(in: .whitespaces)
         let name = number > 1 ? "\(base) \(number)" : base
-        self.init(saved: saved, restoring: false, scrollback: nil, claudeName: name)
+        self.init(saved: saved, restoring: false, scrollback: nil, claudeName: name, arguments: arguments)
     }
 
     /// Opens a terminal from saved data. A restored Claude or opencode terminal resumes its conversation.
-    init(saved: SavedSession, restoring: Bool, scrollback: String?, claudeName: String? = nil) {
+    init(saved: SavedSession, restoring: Bool, scrollback: String?, claudeName: String? = nil, arguments: [String] = []) {
         id = saved.id
         workspaceID = saved.workspaceID
         launcher = saved.launcher
         self.claudeName = claudeName
+        initialArguments = arguments
         defaultName = saved.defaultName
         customName = saved.customName
         initialToolSessionID = saved.toolSessionID
@@ -207,10 +212,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
 
     private func command(restoring: Bool) -> String? {
         let base = launcher.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Each extra argument is one shell word, so a value from a link cannot add a command.
+        let extra = restoring ? "" : initialArguments.map { " " + Self.shellQuoted($0) }.joined()
         switch launcher.integration {
         case .none:
             if base.isEmpty || (restoring && !launcher.rerunOnRestore) { return nil }
-            return base
+            return base + extra
         case .claude:
             let claude = base.isEmpty ? "claude" : base
             let settings = "--settings '\(AppPaths.claudeSettings.path)'"
@@ -219,10 +226,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
             if restoring && Self.claudeConversationExists(sessionID) {
                 return "\(claude) \(settings) --resume \(sessionID)"
             }
-            return "\(claude) \(settings) --session-id \(sessionID)\(nameFlag(for: claude))"
+            return "\(claude) \(settings) --session-id \(sessionID)\(nameFlag(for: claude))\(extra)"
         case .opencode:
             let opencode = base.isEmpty ? "opencode" : base
-            return restoring ? "\(opencode) --continue" : opencode
+            return restoring ? "\(opencode) --continue" : opencode + extra
         }
     }
 

@@ -9,7 +9,186 @@ struct SettingsView: View {
                 .tabItem { Label("Appearance", systemImage: "paintpalette") }
             LaunchersSettingsView(store: store)
                 .tabItem { Label("Launchers", systemImage: "list.bullet.rectangle") }
+            LinksSettingsView(store: store)
+                .tabItem { Label("Links", systemImage: "link") }
         }
+    }
+}
+
+/// The list of link actions, with an editor for the selected action.
+struct LinksSettingsView: View {
+    @ObservedObject var store: AppStore
+    @State private var selection: UUID?
+
+    var body: some View {
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                List(selection: $selection) {
+                    ForEach(store.linkActions) { action in
+                        Label {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(action.name)
+                                Text("\(LinkActions.scheme)://\(action.name)")
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        } icon: {
+                            let ok = LinkActions.problems(action, among: store.linkActions, launchers: store.launchers).isEmpty
+                            Image(systemName: ok ? "link" : "exclamationmark.triangle")
+                                .foregroundStyle(ok ? Color.primary : Color.orange)
+                        }
+                        .tag(action.id)
+                    }
+                }
+                Divider()
+                HStack(spacing: 2) {
+                    Button { add() } label: { Image(systemName: "plus").frame(width: 20, height: 20) }
+                        .help("Add a link action")
+                    Button { remove() } label: { Image(systemName: "minus").frame(width: 20, height: 20) }
+                        .help("Remove the selected link action")
+                        .disabled(selection == nil)
+                    Spacer()
+                }
+                .buttonStyle(.borderless)
+                .padding(6)
+            }
+            .frame(width: 190)
+
+            Divider()
+
+            if let id = selection, store.linkActions.contains(where: { $0.id == id }) {
+                LinkActionEditor(action: binding(for: id), store: store)
+            } else {
+                VStack(spacing: 8) {
+                    Text("A link action lets a different program, for example a browser plugin, open a terminal with a link.")
+                    Text("Click + to add one.")
+                }
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(width: 700, height: 560)
+        .onAppear { if selection == nil { selection = store.linkActions.first?.id } }
+    }
+
+    /// A binding by ID, so that a removed action cannot cause an index out of range.
+    private func binding(for id: UUID) -> Binding<LinkAction> {
+        Binding(
+            get: { store.linkActions.first { $0.id == id } ?? LinkAction.new(launcherID: Launcher.terminalID) },
+            set: { value in
+                if let index = store.linkActions.firstIndex(where: { $0.id == id }) { store.linkActions[index] = value }
+            }
+        )
+    }
+
+    private func add() {
+        var action = LinkAction.new(launcherID: store.launchers.first?.id ?? Launcher.terminalID)
+        var number = 2
+        while store.linkActions.contains(where: { $0.name == action.name }) {
+            action.name = "open-\(number)"
+            number += 1
+        }
+        store.linkActions.append(action)
+        selection = action.id
+    }
+
+    private func remove() {
+        guard let id = selection, let index = store.linkActions.firstIndex(where: { $0.id == id }) else { return }
+        store.linkActions.remove(at: index)
+        selection = store.linkActions.isEmpty ? nil : store.linkActions[min(index, store.linkActions.count - 1)].id
+    }
+}
+
+struct LinkActionEditor: View {
+    @Binding var action: LinkAction
+    @ObservedObject var store: AppStore
+
+    private var example: String {
+        var parts = action.parameters.map { "\($0.name)=…" }
+        if action.acceptsData { parts.append("\(LinkActions.dataName)=…") }
+        return "\(LinkActions.scheme)://\(action.name)" + (parts.isEmpty ? "" : "?" + parts.joined(separator: "&"))
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Name", text: $action.name)
+                LabeledContent("Link") {
+                    Text(example).font(.caption.monospaced()).textSelection(.enabled)
+                }
+                let problems = LinkActions.problems(action, among: store.linkActions, launchers: store.launchers)
+                if !problems.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(problems, id: \.self) { problem in
+                            Label(problem, systemImage: "exclamationmark.triangle")
+                        }
+                        Text("A link to this action does not open until you fix these problems.")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                }
+            }
+
+            Section("Parameters") {
+                ForEach($action.parameters) { $parameter in
+                    HStack {
+                        TextField("Name", text: $parameter.name, prompt: Text("name"))
+                            .frame(width: 120)
+                        TextField("Pattern", text: $parameter.pattern, prompt: Text("^[0-9a-f]{32}$"))
+                            .font(.body.monospaced())
+                        Button { action.parameters.removeAll { $0.id == parameter.id } } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove the parameter")
+                    }
+                    .labelsHidden()
+                }
+                Button("Add Parameter") { action.parameters.append(LinkParameter(name: "", pattern: "")) }
+                Text("The link must give each parameter one time. The pattern must match the whole value.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Accept data", isOn: $action.acceptsData)
+                Text("The link can bring JSON data as data=<base64url>, up to \(LinkActions.linkDataLimit / 1024) KB. For more data, the program saves terminalspace-\(action.name)-<first parameter>.json in Downloads and sends source=download. TerminalSpace saves the data and gives its path as {data_file}.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Terminal") {
+                TextField("Workspace name", text: $action.workspaceName, prompt: Text("Story {sys_id:8}"))
+                TextField("Folder", text: $action.folder, prompt: Text("~/projects"))
+                Picker("Launcher", selection: $action.launcherID) {
+                    ForEach(store.launchers) { launcher in
+                        Label(launcher.name, systemImage: launcher.symbol).tag(launcher.id)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Arguments")
+                    TextEditor(text: $action.arguments)
+                        .font(.body.monospaced())
+                        .frame(height: 56)
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.gray.opacity(0.3)))
+                    Text("One argument on each line. TerminalSpace adds them after the command of the launcher, each one in shell quotes. Placeholders: {name} for the value of a parameter, {name:8} for its first 8 characters, and {data_file}.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text("If the workspace already has a running terminal of this launcher, TerminalSpace selects that terminal.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Ask before open", isOn: $action.askBeforeOpen)
+                Text("Any web page can open a TerminalSpace link. Keep this on unless you trust each program that sends this link.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 

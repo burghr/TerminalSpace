@@ -51,6 +51,21 @@ final class AppStore: ObservableObject {
         didSet { UserDefaults.standard.set(cursorBlink, forKey: "cursorBlink"); applyAppearance() }
     }
 
+    // MARK: Link actions
+
+    /// The actions for terminalspace:// links. The list is empty until you add an action in Settings > Links.
+    @Published var linkActions: [LinkAction] = AppStore.loadLinkActions() {
+        didSet {
+            if let data = try? JSONEncoder().encode(linkActions) { UserDefaults.standard.set(data, forKey: "linkActions") }
+        }
+    }
+
+    private static func loadLinkActions() -> [LinkAction] {
+        guard let data = UserDefaults.standard.data(forKey: "linkActions"),
+              let saved = try? JSONDecoder().decode([LinkAction].self, from: data) else { return [] }
+        return saved
+    }
+
     func appearance(for workspaceID: UUID) -> TerminalAppearance {
         let themeID = workspaces.first { $0.id == workspaceID }?.theme ?? defaultThemeID
         return TerminalAppearance(theme: TerminalTheme.named(themeID), fontName: fontName, fontSize: fontSize,
@@ -116,13 +131,18 @@ final class AppStore: ObservableObject {
         panel.prompt = "Create Workspace"
         panel.message = "Select the folder for the new workspace."
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        addWorkspace(name: url.lastPathComponent, directory: url.path)
+    }
 
+    @discardableResult
+    private func addWorkspace(name: String, directory: String) -> Workspace {
         // Give each new workspace the first color that no other workspace uses.
         let used = Set(workspaces.map { $0.color ?? .blue })
         let color = WorkspaceColor.allCases.first { !used.contains($0) } ?? .blue
-        let workspace = Workspace(name: url.lastPathComponent, directory: url.path, color: color)
+        let workspace = Workspace(name: name, directory: directory, color: color)
         workspaces.append(workspace)
         activeWorkspaceID = workspace.id
+        return workspace
     }
 
     func renameWorkspace(_ id: UUID, to name: String) {
@@ -163,10 +183,11 @@ final class AppStore: ObservableObject {
 
     // MARK: Terminals
 
-    func newSession(_ launcher: Launcher, in workspaceID: UUID? = nil) {
+    /// Starts a terminal. The arguments go after the command of the launcher, for a new terminal only.
+    func newSession(_ launcher: Launcher, in workspaceID: UUID? = nil, arguments: [String] = []) {
         guard let workspace = workspaces.first(where: { $0.id == workspaceID }) ?? activeWorkspace else { return }
         let number = sessions.filter { $0.workspaceID == workspace.id && $0.launcher.id == launcher.id }.count + 1
-        add(TerminalSession(workspace: workspace, launcher: launcher, number: number))
+        add(TerminalSession(workspace: workspace, launcher: launcher, number: number, arguments: arguments))
         activeWorkspaceID = workspace.id
         selection = sessions.last?.id
     }
@@ -269,6 +290,77 @@ final class AppStore: ObservableObject {
             selection = siblings.last?.id
         }
         saveSessions()
+    }
+
+    // MARK: Links
+
+    /// Opens a terminalspace:// link with the matching link action from Settings > Links.
+    /// The action creates or focuses its workspace, then starts its launcher with its arguments.
+    /// If the workspace already has a running terminal of that launcher, the app selects that terminal.
+    func open(_ url: URL) {
+        let request: LinkRequest
+        switch LinkActions.request(for: url, actions: linkActions, launchers: launchers) {
+        case .success(let value): request = value
+        case .failure(let error): return rejectLink(error.description)
+        }
+        let action = request.action
+        guard let launcher = launchers.first(where: { $0.id == action.launcherID }) else {
+            return rejectLink("The launcher of the link action \"\(action.name)\" does not exist.")
+        }
+        let name = LinkActions.expand(action.workspaceName, values: request.values, dataFile: nil)
+            .trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return rejectLink("The workspace name of \"\(action.name)\" is empty.") }
+
+        if action.askBeforeOpen && !confirmLink(request, workspaceName: name, launcher: launcher) { return }
+
+        var dataPath: String?
+        if action.acceptsData {
+            switch LinkActions.saveData(request) {
+            case .success(let file): dataPath = file.path
+            case .failure(let error): return rejectLink(error.description)
+            }
+        }
+
+        let workspace: Workspace
+        if let existing = workspaces.first(where: { $0.name == name }) {
+            workspace = existing
+            activeWorkspaceID = existing.id
+        } else {
+            let folder = (action.folder as NSString).expandingTildeInPath
+            var isFolder: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder), isFolder.boolValue else {
+                return rejectLink("The folder \"\(action.folder)\" of \"\(action.name)\" does not exist.")
+            }
+            workspace = addWorkspace(name: name, directory: folder)
+        }
+
+        if let running = sessions(in: workspace).first(where: { $0.launcher.id == launcher.id && !$0.exited }) {
+            selection = running.id
+        } else {
+            newSession(launcher, in: workspace.id,
+                       arguments: LinkActions.arguments(action, values: request.values, dataFile: dataPath))
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func confirmLink(_ request: LinkRequest, workspaceName: String, launcher: Launcher) -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Open the link \"\(request.action.name)\"?"
+        let values = request.action.parameters.map { "\($0.name): \(request.values[$0.name] ?? "")" }
+        alert.informativeText = (values + ["Workspace: \(workspaceName)", "Launcher: \(launcher.name)"])
+            .joined(separator: "\n")
+        alert.addButton(withTitle: "Open")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func rejectLink(_ reason: String) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "TerminalSpace did not open the link"
+        alert.informativeText = reason
+        alert.runModal()
     }
 
     // MARK: Save and restore
