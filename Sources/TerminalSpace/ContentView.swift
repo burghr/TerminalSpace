@@ -54,9 +54,10 @@ struct ContentView: View {
 
     private var sidebar: some View {
         List(selection: $store.selection) {
-            ForEach(store.workspaces) { workspace in
+            ForEach(store.sidebarWorkspaces) { workspace in
                 Section {
-                    ForEach(store.sessions(in: workspace)) { session in
+                    // The Dispatch terminal is not a row. The Remote Control bar under the list shows it.
+                    ForEach(store.sessions(in: workspace).filter { $0.launcher.id != Launcher.remoteControlID }) { session in
                         SessionRow(session: session, tint: workspace.tint,
                                    inActiveWorkspace: store.activeWorkspaceID == workspace.id)
                             .tag(session.id)
@@ -106,11 +107,13 @@ struct ContentView: View {
                             Button("Show in Finder") {
                                 NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: workspace.directory)
                             }
-                            Divider()
-                            Button("Move Up") { store.moveWorkspace(workspace.id, by: -1) }
-                                .disabled(store.workspaces.first?.id == workspace.id)
-                            Button("Move Down") { store.moveWorkspace(workspace.id, by: 1) }
-                                .disabled(store.workspaces.last?.id == workspace.id)
+                            if workspace.id != store.remoteControlWorkspaceID {
+                                Divider()
+                                Button("Move Up") { store.moveWorkspace(workspace.id, by: -1) }
+                                    .disabled(store.sidebarWorkspaces.first?.id == workspace.id)
+                                Button("Move Down") { store.moveWorkspace(workspace.id, by: 1) }
+                                    .disabled(store.sidebarWorkspaces.last?.id == workspace.id)
+                            }
                             Divider()
                             Button("Remove Workspace", role: .destructive) { store.removeWorkspace(workspace.id) }
                         }
@@ -118,6 +121,9 @@ struct ContentView: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if store.remoteControl.enabled { RemoteControlBar(store: store) }
+        }
     }
 
     @ViewBuilder
@@ -312,6 +318,42 @@ struct WorkspaceHeader: View {
             return true
         } isTargeted: { dropTargeted = $0 }
         .help(workspace.directory)
+    }
+}
+
+/// The status of the Dispatch session, at the bottom of the sidebar. A click shows the Dispatch terminal.
+struct RemoteControlBar: View {
+    @ObservedObject var store: AppStore
+
+    var body: some View {
+        let dispatch = store.remoteControlSession
+        let running = dispatch.map { !$0.exited } ?? false
+        let selected = dispatch != nil && store.selection == dispatch?.id
+        HStack(spacing: 8) {
+            Circle()
+                .fill(running ? SwiftUI.Color.green : SwiftUI.Color.secondary)
+                .frame(width: 8, height: 8)
+            Text(running ? "Remote Control Active" : "Remote Control Stopped")
+                .fontWeight(selected ? .semibold : .regular)
+            Spacer()
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(selected ? SwiftUI.Color.accentColor.opacity(0.2) : .clear)
+        .overlay(alignment: .top) { Divider() }
+        .contentShape(Rectangle())
+        .onTapGesture { if let dispatch { store.selection = dispatch.id } }
+        .contextMenu {
+            Button("Show Dispatch") { store.selection = dispatch?.id }
+                .disabled(dispatch == nil)
+            Button("Restart Dispatch") { store.syncRemoteControl(restart: true) }
+            Button("Stop Dispatch") { store.remoteControl.enabled = false }
+            Divider()
+            SettingsLink { Text("Remote Control Settings…") }
+        }
+        .help("Click to show the Dispatch session. Right-click for more actions.")
     }
 }
 

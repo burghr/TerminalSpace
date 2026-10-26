@@ -30,6 +30,8 @@ struct Launcher: Identifiable, Codable, Equatable {
     static let terminalID = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
     static let claudeID = UUID(uuidString: "00000000-0000-4000-8000-000000000002")!
     static let opencodeID = UUID(uuidString: "00000000-0000-4000-8000-000000000003")!
+    /// The launcher of the Dispatch terminal. It is not in the new-terminal menu.
+    static let remoteControlID = UUID(uuidString: "00000000-0000-4000-8000-000000000010")!
 
     static let defaults = [
         Launcher(id: terminalID, name: "Terminal", symbol: "terminal", command: ""),

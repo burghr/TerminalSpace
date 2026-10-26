@@ -11,7 +11,127 @@ struct SettingsView: View {
                 .tabItem { Label("Launchers", systemImage: "list.bullet.rectangle") }
             LinksSettingsView(store: store)
                 .tabItem { Label("Links", systemImage: "link") }
+            RemoteSettingsView(store: store)
+                .tabItem { Label("Remote", systemImage: "antenna.radiowaves.left.and.right") }
         }
+    }
+}
+
+/// The settings for the Dispatch session and for the start at login.
+struct RemoteSettingsView: View {
+    @ObservedObject var store: AppStore
+    @State private var loginStatus = LoginItem.status
+    @State private var loginError: String?
+    @State private var commandStatus = DispatchCommand.status
+    @State private var commandError: String?
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Run the Dispatch session", isOn: $store.remoteControl.enabled)
+                Text("TerminalSpace runs a Claude session with the name \"Dispatch\" and Remote Control on. In the Claude app, open Dispatch and type /ts-session <name>. A new session with that name then opens in the \"Remote Control Sessions\" workspace.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                LabeledContent("/ts-session command") {
+                    HStack {
+                        switch commandStatus {
+                        case .installed: Text("Installed").foregroundStyle(.secondary)
+                        case .outdated: Text("Changed").foregroundStyle(.orange)
+                        case .missing: Text("Not installed").foregroundStyle(.orange)
+                        case .unavailable: Text("Not in this build").foregroundStyle(.secondary)
+                        }
+                        if commandStatus == .missing || commandStatus == .outdated {
+                            Button(commandStatus == .missing ? "Install" : "Replace") {
+                                commandError = DispatchCommand.install()
+                                commandStatus = DispatchCommand.status
+                            }
+                        }
+                    }
+                }
+                Text(commandStatus == .outdated
+                     ? "~/.claude/commands/ts-session.md is different from the copy in this version of TerminalSpace. Replace overwrites your changes."
+                     : "Dispatch needs the command in ~/.claude/commands/ts-session.md.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let commandError {
+                    Text(commandError).font(.caption).foregroundStyle(.orange)
+                }
+                if store.remoteControl.enabled {
+                    LabeledContent("Status") {
+                        if let session = store.remoteControlSession, !session.exited {
+                            Label("Running", systemImage: "circle.fill").foregroundStyle(.green)
+                        } else {
+                            Label("Stopped", systemImage: "circle.fill").foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            Section("Session") {
+                LabeledContent("Folder") {
+                    HStack {
+                        Text(store.remoteControl.folder).font(.body.monospaced()).lineLimit(1).truncationMode(.middle)
+                        Button("Choose…") { chooseFolder() }
+                    }
+                }
+                Picker("Permission mode", selection: $store.remoteControl.permissionMode) {
+                    ForEach(RemoteControlSettings.permissionModes, id: \.self) { Text($0).tag($0) }
+                }
+                Text("The permission mode applies to Dispatch and to each new session from /ts-session.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Keep the Mac awake while Dispatch runs", isOn: $store.remoteControl.keepAwake)
+                Text("Uses caffeinate -i. A MacBook with a closed lid still sleeps, unless it has power and an external display.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Restart Dispatch") { store.syncRemoteControl(restart: true) }
+                    .disabled(!store.remoteControl.enabled)
+                Text("A change to a setting restarts Dispatch. A restart keeps the Dispatch conversation and does not stop the other sessions.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Start at login") {
+                Toggle("Open TerminalSpace at login", isOn: Binding(
+                    get: { loginStatus == .enabled || loginStatus == .requiresApproval },
+                    set: { value in
+                        loginError = LoginItem.set(value)
+                        loginStatus = LoginItem.status
+                    }))
+                if loginStatus == .requiresApproval {
+                    HStack {
+                        Text("macOS must approve the login item.")
+                        Button("Open Login Items") { LoginItem.openSystemSettings() }
+                    }
+                    .font(.caption)
+                }
+                if let loginError {
+                    Text(loginError).font(.caption).foregroundStyle(.orange)
+                }
+                Text("Dispatch runs only while TerminalSpace is open. If you close the window, TerminalSpace quits and Dispatch stops.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 520, height: 560)
+        .onAppear {
+            loginStatus = LoginItem.status
+            commandStatus = DispatchCommand.status
+        }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.directoryURL = URL(fileURLWithPath: store.remoteControl.expandedFolder)
+        panel.prompt = "Choose"
+        panel.message = "Select the folder for the Remote Control sessions."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        // Keep the folder short with ~, so that it shows well in the settings.
+        let home = NSHomeDirectory()
+        store.remoteControl.folder = url.path.hasPrefix(home) ? "~" + url.path.dropFirst(home.count) : url.path
     }
 }
 

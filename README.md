@@ -19,6 +19,7 @@ The app uses [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) for termina
 - **Launchers:** The new-terminal menu shows a list of launchers. Each launcher has a name, an icon, and a command. The default launchers are Terminal, Claude, and opencode. Add your own, for example `ssh user@host`. The command starts in the workspace folder. When it stops, the tab continues as a normal shell.
 - **Run Command:** Start any command one time, or save it as a launcher.
 - **Link actions:** Let a different program, for example a browser plugin, open a workspace and a terminal with a `terminalspace://` link. Off until you add an action.
+- **Remote Control and Dispatch:** From the Claude app on your phone, open new Claude sessions on your Mac. Each session is a TerminalSpace terminal, so you can continue it at the Mac later. Off by default.
 - **Drag files in:** Drag a file or a folder into a terminal to type its path. Dragged text also goes in.
 - **Claude session names:** A new Claude session gets the name of its workspace. The name shows in the Claude prompt box, in the `/resume` list, and in the tab.
 - **Drag and drop:** Drag a terminal to a different workspace, or to a different position. Drag a workspace name onto a different workspace to change the order of workspaces.
@@ -129,6 +130,41 @@ Example: the action `ticket` with the parameter `id`, the launcher Claude, and t
 
 Any web page can open a `terminalspace://` link. Keep **Ask before open** on, unless you trust each program that sends the link. A browser also asks before a site opens the link for the first time.
 
+## Remote Control and Dispatch
+
+With this feature, you can start a Claude session on your Mac when you are away from it. You can work in the session from the Claude app, and continue it in TerminalSpace when you return.
+
+TerminalSpace runs one Claude terminal with the name **Dispatch**, with [Remote Control](https://code.claude.com/docs/en/remote-control) on. From the Claude app, you send `/ts-session <name>` to Dispatch. Dispatch then opens a new Claude terminal with that name in the **Remote Control Sessions** workspace. The new session also has Remote Control on, so it shows in the Claude app.
+
+**Set up:**
+
+1. Open **Settings > Remote**.
+2. Click **Install** next to **/ts-session command**. TerminalSpace copies the command to `~/.claude/commands/ts-session.md`.
+3. Click **Choose…** and select the folder for the sessions.
+4. Select the permission mode. The mode applies to Dispatch and to each new session. TerminalSpace does not offer `bypassPermissions`.
+5. Turn on **Run the Dispatch session**.
+6. Optional: turn on **Open TerminalSpace at login**.
+
+**Use:**
+
+1. In the Claude app, open the session **Dispatch**.
+2. Send `/ts-session fix-login`.
+3. Open **fix-login** from the session list. The session can take a few seconds to show.
+4. At the Mac, select **fix-login** in the **Remote Control Sessions** workspace. The conversation is on the screen, and you can type in the terminal or in the app.
+
+The bar at the bottom of the sidebar shows the status of Dispatch. Click the bar to show the Dispatch terminal. Right-click it to restart or stop Dispatch. A restart keeps the Dispatch conversation. When you close the Dispatch terminal, the setting goes off.
+
+**Requirements and limits:**
+
+- Your Claude plan must include Remote Control. An organization can turn Remote Control off.
+- Dispatch runs only while TerminalSpace is open. When you close the window, TerminalSpace quits.
+- With **Keep the Mac awake**, TerminalSpace starts Claude under `caffeinate -i`. A MacBook with a closed lid still sleeps, unless it has power and an external display.
+- If a link does not open, the error shows on the Mac, not on the phone.
+
+**The link.** `/ts-session` runs `open 'terminalspace://remote-session?name=<name>'`. TerminalSpace accepts this link only while Dispatch is on. The name can have 1 to 40 letters, digits, spaces, dots, dashes, and underscores. TerminalSpace puts the name in shell quotes.
+
+Any web page can open this link, and TerminalSpace does not ask before it opens the link. A page can start an idle Claude session on your account in the session folder. The page cannot send a prompt to the session. Only your Claude account can connect to the session. A browser also asks before a site opens the link for the first time.
+
 ## How Claude sessions resume
 
 A Claude conversation can change its ID, for example after `/resume` or `/clear`. To track the current ID, TerminalSpace starts Claude with `--settings`. That settings file adds a `SessionStart` hook. The hook writes the current session data to a file for each terminal. Your own Claude settings and hooks stay active.
@@ -153,6 +189,7 @@ The app keeps its settings, launchers, and link actions in the `com.coconetlabs.
 - A running command stops when you quit. The terminal opens again, but you must start the command again.
 - The restored output of a Terminal tab is plain text without colors.
 - Two opencode terminals in the same folder continue the same session.
+- Sessions that you start with **New session** in the Claude app do not show in TerminalSpace. Use `/ts-session` in Dispatch.
 
 ## License
 

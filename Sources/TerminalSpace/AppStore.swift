@@ -66,6 +66,102 @@ final class AppStore: ObservableObject {
         return saved
     }
 
+    // MARK: Remote Control
+
+    /// A change to a setting starts, restarts, or stops the Dispatch terminal.
+    @Published var remoteControl: RemoteControlSettings = .load() {
+        didSet {
+            guard remoteControl != oldValue else { return }
+            remoteControl.save()
+            syncRemoteControl()
+        }
+    }
+
+    var remoteControlSession: TerminalSession? {
+        sessions.first { $0.launcher.id == Launcher.remoteControlID }
+    }
+
+    /// Makes the Dispatch terminal match the settings. A terminal that matches continues, unless `restart` is true.
+    /// A restart keeps the Dispatch conversation, so that the Claude app shows the same session.
+    func syncRemoteControl(restart: Bool = false) {
+        let old = remoteControlSession
+        let launcher = remoteControl.launcher
+        let folder = remoteControl.expandedFolder
+        if remoteControl.enabled, let old, !restart, old.launcher == launcher,
+           remoteControlWorkspaceID.flatMap({ id in workspaces.first { $0.id == id } })?.directory == folder {
+            return
+        }
+        // Older builds ran a server terminal without a conversation. That terminal has nothing to resume.
+        var saved = old.flatMap { $0.launcher.integration == .claude ? $0.saved : nil }
+        if let old { removeSession(old.id) }
+        guard remoteControl.enabled else { return }
+
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder), isFolder.boolValue else {
+            remoteControl.enabled = false
+            return showAlert("The Dispatch session did not start",
+                             "The folder \"\(remoteControl.folder)\" does not exist.")
+        }
+        let workspace = remoteControlWorkspace(directory: folder)
+        // The Dispatch terminal does not take the selection, so that a start at login does not hide your work.
+        if saved != nil {
+            saved?.launcher = launcher
+            saved?.workspaceID = workspace.id
+            saved?.directory = folder
+            add(TerminalSession(saved: saved!, restoring: true, scrollback: nil))
+        } else {
+            add(TerminalSession(workspace: workspace, launcher: launcher, number: 1))
+        }
+        if selection == nil { selection = remoteControlSession?.id }
+    }
+
+    /// Opens a Claude terminal with Remote Control in the Remote Control workspace, from a remote-session link.
+    /// The Dispatch setting must be on, because the link comes from the Dispatch session.
+    /// The app does not come to the front, because you are probably not at the Mac.
+    private func openRemoteSession(_ url: URL) {
+        guard remoteControl.enabled else {
+            return rejectLink("Remote Control is off. Turn it on in Settings > Remote.")
+        }
+        let name = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "name" }?.value?.trimmingCharacters(in: .whitespaces) ?? ""
+        guard name.range(of: RemoteControlSettings.sessionNamePattern, options: .regularExpression) != nil else {
+            return rejectLink("The session name \"\(name)\" is not valid. Use 1 to 40 letters, digits, spaces, dots, dashes, or underscores.")
+        }
+        let folder = remoteControl.expandedFolder
+        guard FileManager.default.fileExists(atPath: folder) else {
+            return rejectLink("The folder \"\(remoteControl.folder)\" does not exist.")
+        }
+        let workspace = remoteControlWorkspace(directory: folder)
+        add(TerminalSession(workspace: workspace, launcher: remoteControl.sessionLauncher(name: name), number: 1))
+        if let session = sessions.last { renameSession(session.id, to: name) }
+    }
+
+    private static let remoteControlWorkspaceKey = "remoteControlWorkspace"
+
+    /// The workspace for the Dispatch terminal and the remote sessions. The sidebar shows it last.
+    var remoteControlWorkspaceID: UUID? {
+        UserDefaults.standard.string(forKey: Self.remoteControlWorkspaceKey).flatMap(UUID.init(uuidString:))
+    }
+
+    /// The workspaces in sidebar order. The Remote Control workspace is always last.
+    var sidebarWorkspaces: [Workspace] {
+        let id = remoteControlWorkspaceID
+        return workspaces.filter { $0.id != id } + workspaces.filter { $0.id == id }
+    }
+
+    /// The workspace of the Dispatch terminal. The app makes it again if you removed it.
+    private func remoteControlWorkspace(directory: String) -> Workspace {
+        if let id = remoteControlWorkspaceID, let index = workspaces.firstIndex(where: { $0.id == id }) {
+            if workspaces[index].directory != directory { workspaces[index].directory = directory }
+            // Earlier builds used the name "Remote Control".
+            if workspaces[index].name == "Remote Control" { workspaces[index].name = "Remote Control Sessions" }
+            return workspaces[index]
+        }
+        let workspace = addWorkspace(name: "Remote Control Sessions", directory: directory)
+        UserDefaults.standard.set(workspace.id.uuidString, forKey: Self.remoteControlWorkspaceKey)
+        return workspace
+    }
+
     func appearance(for workspaceID: UUID) -> TerminalAppearance {
         let themeID = workspaces.first { $0.id == workspaceID }?.theme ?? defaultThemeID
         return TerminalAppearance(theme: TerminalTheme.named(themeID), fontName: fontName, fontSize: fontSize,
@@ -105,6 +201,8 @@ final class AppStore: ObservableObject {
         }
         activeWorkspaceID = workspaces.first?.id
         restoreSessions()
+        // Start Dispatch after the app finishes its start, so that an alert can show.
+        DispatchQueue.main.async { self.syncRemoteControl() }
     }
 
     var selectedSession: TerminalSession? {
@@ -277,7 +375,14 @@ final class AppStore: ObservableObject {
     }
 
     func closeSession(_ id: UUID?) {
-        guard let id, let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+        guard let id, let session = sessions.first(where: { $0.id == id }) else { return }
+        removeSession(id)
+        // When you close the Dispatch terminal, Dispatch stays off until you turn it on again in Settings.
+        if session.launcher.id == Launcher.remoteControlID { remoteControl.enabled = false }
+    }
+
+    private func removeSession(_ id: UUID) {
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         let session = sessions[index]
         session.terminate()
         session.removeClaudeState()
@@ -298,6 +403,9 @@ final class AppStore: ObservableObject {
     /// The action creates or focuses its workspace, then starts its launcher with its arguments.
     /// If the workspace already has a running terminal of that launcher, the app selects that terminal.
     func open(_ url: URL) {
+        if url.scheme == LinkActions.scheme && url.host == RemoteControlSettings.sessionLinkHost {
+            return openRemoteSession(url)
+        }
         let request: LinkRequest
         switch LinkActions.request(for: url, actions: linkActions, launchers: launchers) {
         case .success(let value): request = value
@@ -356,10 +464,14 @@ final class AppStore: ObservableObject {
     }
 
     private func rejectLink(_ reason: String) {
+        showAlert("TerminalSpace did not open the link", reason)
+    }
+
+    private func showAlert(_ title: String, _ text: String) {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "TerminalSpace did not open the link"
-        alert.informativeText = reason
+        alert.messageText = title
+        alert.informativeText = text
         alert.runModal()
     }
 
@@ -398,6 +510,7 @@ final class AppStore: ObservableObject {
               let layout = try? JSONDecoder().decode(SavedLayout.self, from: data) else { return }
 
         restoring = true
+        // syncRemoteControl replaces the Dispatch terminal later if the settings changed.
         for saved in layout.sessions where workspaces.contains(where: { $0.id == saved.workspaceID }) {
             let scrollback = try? String(contentsOf: scrollbackURL(saved.id), encoding: .utf8)
             add(TerminalSession(saved: saved, restoring: true, scrollback: scrollback))
