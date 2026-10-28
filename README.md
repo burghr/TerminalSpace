@@ -21,6 +21,7 @@ The app uses [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) for termina
 - **Link actions:** Let a different program, for example a browser plugin, open a workspace and a terminal with a `terminalspace://` link. Off until you add an action.
 - **Remote Control and Dispatch:** From the Claude app on your phone, open new Claude sessions on your Mac. Each session is a TerminalSpace terminal, so you can continue it at the Mac later. Off by default.
 - **Drag files in:** Drag a file or a folder into a terminal to type its path. Dragged text also goes in.
+- **File links:** Cmd-click a file path in a terminal to open the file in its default app, as in Terminal.app. A path can be absolute, relative to the current folder, or have a line number, for example `Sources/App.swift:12`. Cmd-click also opens URLs.
 - **Claude session names:** A new Claude session gets the name of its workspace. The name shows in the Claude prompt box, in the `/resume` list, and in the tab.
 - **Drag and drop:** Drag a terminal to a different workspace, or to a different position. Drag a workspace name onto a different workspace to change the order of workspaces.
 - **Restore:** When you quit, the app saves your terminals. At the next start:

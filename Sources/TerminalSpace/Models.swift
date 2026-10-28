@@ -152,7 +152,7 @@ struct SavedSession: Codable {
 final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProcessTerminalViewDelegate {
     let id: UUID
     let launcher: Launcher
-    let view: LocalProcessTerminalView
+    let view: FileLinkTerminalView
     let defaultName: String
     private let initialToolSessionID: UUID?
 
@@ -200,10 +200,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, LocalProc
         customName = saved.customName
         initialToolSessionID = saved.toolSessionID
         startDirectory = FileManager.default.fileExists(atPath: saved.directory) ? saved.directory : NSHomeDirectory()
-        view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        view = FileLinkTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         super.init()
 
         view.processDelegate = self
+        view.directory = { [weak self] in self?.currentDirectory ?? NSHomeDirectory() }
 
         if let scrollback, !scrollback.isEmpty {
             view.feed(text: scrollback.replacingOccurrences(of: "\n", with: "\r\n"))
