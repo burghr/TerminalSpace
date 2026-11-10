@@ -85,6 +85,10 @@ enum LinkActions {
         if actions.contains(where: { $0.id != action.id && $0.name == action.name }) {
             result.append("Another action has the same name.")
         }
+        // Built-in links use these names, so an action with one of them never runs.
+        if [RemoteControlSettings.sessionLinkHost, ClaudeConversation.resumeLinkHost].contains(action.name) {
+            result.append("The name \"\(action.name)\" is reserved for a built-in link.")
+        }
         var seen = Set<String>()
         for parameter in action.parameters {
             if !isName(parameter.name, extra: ["_"]) || parameter.name == dataFilePlaceholder {

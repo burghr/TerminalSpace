@@ -19,6 +19,7 @@ The app uses [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) for termina
 - **Launchers:** The new-terminal menu shows a list of launchers. Each launcher has a name, an icon, and a command. The default launchers are Terminal, Claude, and opencode. Add your own, for example `ssh user@host`. The command starts in the workspace folder. When it stops, the tab continues as a normal shell.
 - **Run Command:** Start any command one time, or save it as a launcher.
 - **Link actions:** Let a different program, for example a browser plugin, open a workspace and a terminal with a `terminalspace://` link. Off until you add an action.
+- **Resume links:** `terminalspace://resume?session=<id>` opens an earlier Claude conversation again, in its own folder. TerminalSpace asks first.
 - **Remote Control and Dispatch:** From the Claude app on your phone, open new Claude sessions on your Mac. Each session is a TerminalSpace terminal, so you can continue it at the Mac later. Off by default.
 - **Drag files in:** Drag a file or a folder into a terminal to type its path. Dragged text also goes in.
 - **File links:** Cmd-click a file path in a terminal to open the file in its default app, as in Terminal.app. A path can be absolute, relative to the current folder, or have a line number, for example `Sources/App.swift:12`. Cmd-click also opens URLs.
@@ -130,6 +131,17 @@ TerminalSpace checks that the data is JSON. Then it saves the data to `link-data
 Example: the action `ticket` with the parameter `id`, the launcher Claude, and the argument `Read {data_file} and summarize ticket {id}`. The link `terminalspace://ticket?id=T123&data=…` then opens the workspace and starts Claude with that prompt.
 
 Any web page can open a `terminalspace://` link. Keep **Ask before open** on, unless you trust each program that sends the link. A browser also asks before a site opens the link for the first time.
+
+### Resume a Claude conversation
+
+`terminalspace://resume?session=<conversation ID>` is a built-in link. It needs no link action.
+
+1. TerminalSpace finds the conversation file `~/.claude/projects/<folder>/<ID>.jsonl` and reads the folder of the conversation from it.
+2. If a terminal already shows the conversation, TerminalSpace selects that terminal.
+3. If not, TerminalSpace shows the title, the folder, and the ID, and asks before it opens.
+4. It opens a Claude terminal with `claude --resume <ID>` in the workspace of that folder. If no workspace has that folder, it adds one with the folder name.
+
+The link gives only the ID. TerminalSpace takes the folder from the conversation file, so a link cannot choose a folder or a command. The names `resume` and `remote-session` are reserved for the built-in links, so a link action cannot use them.
 
 ## Remote Control and Dispatch
 

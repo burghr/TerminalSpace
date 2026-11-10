@@ -406,6 +406,9 @@ final class AppStore: ObservableObject {
         if url.scheme == LinkActions.scheme && url.host == RemoteControlSettings.sessionLinkHost {
             return openRemoteSession(url)
         }
+        if url.scheme == LinkActions.scheme && url.host == ClaudeConversation.resumeLinkHost {
+            return openResumeLink(url)
+        }
         let request: LinkRequest
         switch LinkActions.request(for: url, actions: linkActions, launchers: launchers) {
         case .success(let value): request = value
@@ -449,6 +452,54 @@ final class AppStore: ObservableObject {
                        arguments: LinkActions.arguments(action, values: request.values, dataFile: dataPath))
         }
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Opens a Claude conversation again, from terminalspace://resume?session=<conversation ID>.
+    /// The link gives only the ID. The app reads the folder from the conversation file, so a link
+    /// cannot choose a folder or a command. The app always asks before it opens the conversation.
+    /// If a terminal already shows the conversation, the app selects that terminal.
+    private func openResumeLink(_ url: URL) {
+        let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "session" }?.value ?? ""
+        guard let id = UUID(uuidString: value) else {
+            return rejectLink("A resume link needs session=<conversation ID>.")
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        if let open = sessions.first(where: { !$0.exited && $0.toolSessionID == id }) {
+            activeWorkspaceID = open.workspaceID
+            selection = open.id
+            return
+        }
+        guard let conversation = ClaudeConversation.find(id) else {
+            return rejectLink("TerminalSpace did not find the Claude conversation \(value.lowercased()) in ~/.claude/projects.")
+        }
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: conversation.folder, isDirectory: &isFolder), isFolder.boolValue else {
+            return rejectLink("The folder of the conversation does not exist any more: \(conversation.folder)")
+        }
+        let launcher = launchers.first { $0.integration == .claude } ?? Launcher.defaults[1]
+
+        let alert = NSAlert()
+        alert.messageText = "Resume the Claude conversation?"
+        alert.informativeText = [conversation.title.map { "Title: \($0)" }, "Folder: \(conversation.folder)",
+                                 "ID: \(value.lowercased())"].compactMap { $0 }.joined(separator: "\n")
+        alert.addButton(withTitle: "Resume")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        // Use the workspace of that folder, or make one with the folder name.
+        let target = URL(fileURLWithPath: conversation.folder).standardizedFileURL.path
+        let workspace = workspaces.first {
+            URL(fileURLWithPath: ($0.directory as NSString).expandingTildeInPath).standardizedFileURL.path == target
+        } ?? addWorkspace(name: URL(fileURLWithPath: target).lastPathComponent, directory: target)
+        activeWorkspaceID = workspace.id
+
+        // A restored Claude terminal runs "claude --resume <id>" in the saved folder.
+        let saved = SavedSession(id: UUID(), workspaceID: workspace.id, launcher: launcher,
+                                 defaultName: launcher.name, customName: conversation.title,
+                                 directory: target, toolSessionID: id)
+        add(TerminalSession(saved: saved, restoring: true, scrollback: nil))
+        selection = saved.id
     }
 
     private func confirmLink(_ request: LinkRequest, workspaceName: String, launcher: Launcher) -> Bool {
