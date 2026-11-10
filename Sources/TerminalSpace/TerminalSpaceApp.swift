@@ -11,6 +11,9 @@ struct TerminalSpaceApp: App {
                 .frame(minWidth: 700, minHeight: 400)
         }
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { UpdateController.shared.checkNow() }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("New Workspace…") { store.addWorkspace() }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
@@ -92,13 +95,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A bare executable from `swift run` needs these two calls to get a Dock icon and keyboard focus.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+
+        // Look for a new release on GitHub. It asks before it installs anything.
+        Task { @MainActor in UpdateController.shared.start() }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let running = AppStore.shared.runningCount
-        if running > 0 {
+        // After "Install and Restart" the update dialog already said that the terminals restart.
+        let updating = MainActor.assumeIsolated { UpdateController.shared.quittingForUpdate }
+        if running > 0 && !updating {
             let alert = NSAlert()
             alert.messageText = "Quit TerminalSpace?"
             alert.informativeText = "\(running) terminal\(running == 1 ? " is" : "s are") still running. "

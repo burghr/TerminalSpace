@@ -20,6 +20,7 @@ The app uses [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) for termina
 - **Run Command:** Start any command one time, or save it as a launcher.
 - **Link actions:** Let a different program, for example a browser plugin, open a workspace and a terminal with a `terminalspace://` link. Off until you add an action.
 - **Resume links:** `terminalspace://resume?session=<id>` opens an earlier Claude conversation again, in its own folder. TerminalSpace asks first.
+- **Updates:** TerminalSpace looks for a new release on GitHub and asks before it installs it. See [Updates](#updates).
 - **Remote Control and Dispatch:** From the Claude app on your phone, open new Claude sessions on your Mac. Each session is a TerminalSpace terminal, so you can continue it at the Mac later. Off by default.
 - **Drag files in:** Drag a file or a folder into a terminal to type its path. Dragged text also goes in.
 - **File links:** Cmd-click a file path in a terminal to open the file in its default app, as in Terminal.app. A path can be absolute, relative to the current folder, or have a line number, for example `Sources/App.swift:12`. Cmd-click also opens URLs.
@@ -181,6 +182,22 @@ Any web page can open this link, and TerminalSpace does not ask before it opens 
 ## How Claude sessions resume
 
 A Claude conversation can change its ID, for example after `/resume` or `/clear`. To track the current ID, TerminalSpace starts Claude with `--settings`. That settings file adds a `SessionStart` hook. The hook writes the current session data to a file for each terminal. Your own Claude settings and hooks stay active.
+
+## Updates
+
+TerminalSpace reads the latest release of `burghr/TerminalSpace` from GitHub 15 seconds after the start and then every 6 hours. Turn this off in **Settings > Updates**. **TerminalSpace > Check for Updates…** checks at once.
+
+When a newer version is available, TerminalSpace asks: **Install and Restart**, **Later**, or **Skip This Version**. A skipped version does not ask again, but a newer one does. TerminalSpace never installs without your OK.
+
+Before it installs, TerminalSpace checks the download:
+
+1. The SHA-256 of the zip must match the checksum that GitHub gives for the file.
+2. The app in the zip must have the TerminalSpace bundle ID and the version of the release.
+3. The app must be signed with the Developer ID of team 3YULF6FJ6W, and Apple must have notarized it.
+
+If a check fails, TerminalSpace installs nothing and offers the release page. Then it replaces its app bundle in one step and restarts. Your terminals open again: Claude and opencode resume their conversations, and other commands start again.
+
+An update works only when TerminalSpace runs from `/Applications` or `~/Applications`. A copy in a build folder only shows that a new version is available.
 
 ## Data
 

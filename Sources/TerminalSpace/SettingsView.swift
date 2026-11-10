@@ -13,6 +13,59 @@ struct SettingsView: View {
                 .tabItem { Label("Links", systemImage: "link") }
             RemoteSettingsView(store: store)
                 .tabItem { Label("Remote", systemImage: "antenna.radiowaves.left.and.right") }
+            UpdatesSettingsView(updates: UpdateController.shared)
+                .tabItem { Label("Updates", systemImage: "arrow.down.circle") }
+        }
+    }
+}
+
+/// The update check: the version, the automatic check, and the manual check.
+struct UpdatesSettingsView: View {
+    @ObservedObject var updates: UpdateController
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Version", value: updates.currentVersion)
+                Toggle("Check for updates automatically", isOn: Binding(
+                    get: { updates.autoCheck }, set: { updates.autoCheck = $0 }))
+                Text("TerminalSpace looks for a new release on GitHub at the start and every 6 hours. "
+                     + "It always asks before it installs, and it installs only a release that Apple notarized.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                HStack {
+                    status
+                    Spacer()
+                    if let release = updates.available, case .available = updates.state {
+                        Button("Install \(release.version)…") { updates.prompt(release) }
+                    }
+                    Button("Check Now") { updates.checkNow() }
+                        .disabled(updates.state == .checking)
+                }
+                if let last = updates.lastCheck {
+                    Text("Last check: \(last.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Button("Open the Release Page") { updates.openReleasePage() }
+                    .buttonStyle(.link)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 520)
+        .padding()
+    }
+
+    @ViewBuilder private var status: some View {
+        switch updates.state {
+        case .idle: Text("Not checked yet").foregroundStyle(.secondary)
+        case .checking: HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Checking…") }
+        case .upToDate: Label("Up to date", systemImage: "checkmark.circle").foregroundStyle(.green)
+        case .available(let version): Label("Version \(version) is available", systemImage: "arrow.down.circle.fill")
+            .foregroundStyle(.blue)
+        case .installing(let version): HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Installing \(version)…") }
+        case .failed(let text): Label(text, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+            .lineLimit(2)
         }
     }
 }
