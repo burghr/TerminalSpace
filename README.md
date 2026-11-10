@@ -41,6 +41,14 @@ The app uses [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) for termina
 - Swift 6 toolchain (Xcode 16 or later, or the Command Line Tools)
 - Optional: `claude` and `opencode` in your login shell `PATH`
 
+## Install
+
+1. Download [`TerminalSpace.dmg`](https://github.com/burghr/TerminalSpace/releases/latest/download/TerminalSpace.dmg) from the latest release.
+2. Open the disk image.
+3. Drag TerminalSpace to the Applications folder.
+
+Apple notarizes the releases, so the app opens without a Gatekeeper warning. Later versions install from inside the app. See [Updates](#updates).
+
 ## Build
 
 ```sh
@@ -58,6 +66,8 @@ Options:
 - `build.sh` uses the Command Line Tools if Xcode cannot build the package, for example when the Xcode license is not accepted, or when the Metal toolchain for the SwiftTerm shaders is missing. To install that toolchain, run `xcodebuild -downloadComponent MetalToolchain`.
 
 To change the icon, edit `Scripts/make-icon.swift`, then run `swift Scripts/make-icon.swift`.
+
+`Scripts/make-dmg.sh [--notarize] [path/to/TerminalSpace.app]` makes `build/TerminalSpace.dmg`: a disk image with the app, an Applications link, and a background that says what to do. It signs the disk image with the Developer ID. With `--notarize`, Apple also notarizes the disk image. Notarize the app before you make the disk image.
 
 ## Keyboard shortcuts
 
