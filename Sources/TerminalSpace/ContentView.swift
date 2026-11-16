@@ -57,7 +57,8 @@ struct ContentView: View {
             ForEach(store.sidebarWorkspaces) { workspace in
                 Section {
                     // The Dispatch terminal is not a row. The Remote Control bar under the list shows it.
-                    ForEach(store.sessions(in: workspace).filter { $0.launcher.id != Launcher.remoteControlID }) { session in
+                    // A collapsed workspace shows no rows.
+                    ForEach(workspace.collapsed == true ? [] : store.sessions(in: workspace).filter { $0.launcher.id != Launcher.remoteControlID }) { session in
                         SessionRow(session: session, tint: workspace.tint,
                                    inActiveWorkspace: store.activeWorkspaceID == workspace.id)
                             .tag(session.id)
@@ -118,6 +119,8 @@ struct ContentView: View {
                             Button("Remove Workspace", role: .destructive) { store.removeWorkspace(workspace.id) }
                         }
                 }
+                // The header has its own button at the left. The system button at the right moved the "+" button.
+                .collapsible(false)
             }
         }
         .listStyle(.sidebar)
@@ -280,7 +283,18 @@ struct WorkspaceHeader: View {
 
     var body: some View {
         let active = store.activeWorkspaceID == workspace.id
+        let collapsed = workspace.collapsed == true
         HStack {
+            Button { store.toggleWorkspaceCollapsed(workspace.id) } label: {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(collapsed ? 0 : 90))
+                    .frame(width: 12, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(collapsed ? "Show the terminals" : "Hide the terminals")
             Image(systemName: active ? "folder.fill" : "folder")
                 .foregroundStyle(workspace.tint)
             Text(workspace.name)

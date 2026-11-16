@@ -89,6 +89,8 @@ struct Workspace: Identifiable, Codable, Equatable {
     var color: WorkspaceColor?
     /// A theme ID for the terminals in this workspace. A nil value uses the default theme from Settings.
     var theme: String?
+    /// A true value hides the terminals of the workspace in the sidebar. Workspaces from older versions have no value.
+    var collapsed: Bool?
 }
 
 /// The data that the app saves for one terminal, so that the terminal can open again at the next start.

@@ -253,6 +253,12 @@ final class AppStore: ObservableObject {
         workspaces[index].color = color
     }
 
+    /// Hides or shows the terminals of a workspace in the sidebar.
+    func toggleWorkspaceCollapsed(_ id: UUID) {
+        guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        workspaces[index].collapsed = !(workspaces[index].collapsed ?? false)
+    }
+
     /// Moves a workspace up (negative offset) or down (positive offset) in the sidebar.
     func moveWorkspace(_ id: UUID, by offset: Int) {
         guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
