@@ -56,6 +56,9 @@ struct ContentView: View {
         List(selection: $store.selection) {
             ForEach(store.sidebarWorkspaces) { workspace in
                 Section {
+                    // The header is a row, not a section header. A section header in a sidebar
+                    // gets a system button at the right, and .collapsible(false) does not remove it.
+                    workspaceHeader(workspace)
                     // The Dispatch terminal is not a row. The Remote Control bar under the list shows it.
                     // A collapsed workspace shows no rows.
                     ForEach(workspace.collapsed == true ? [] : store.sessions(in: workspace).filter { $0.launcher.id != Launcher.remoteControlID }) { session in
@@ -75,58 +78,58 @@ struct ContentView: View {
                     .dropDestination(for: String.self) { items, index in
                         store.moveSessions(items.compactMap(UUID.init), to: workspace.id, at: index)
                     }
-                } header: {
-                    WorkspaceHeader(store: store, workspace: workspace)
-                        .draggable(Workspace.dragPrefix + workspace.id.uuidString)
-                        .contextMenu {
-                            Button("Rename…") { beginRename(.workspace(workspace.id), workspace.name) }
-                            Menu(workspace.themeAccent == nil ? "Color" : "Color (the theme sets it)") {
-                                ForEach(WorkspaceColor.allCases) { color in
-                                    Button {
-                                        store.setWorkspaceColor(workspace.id, to: color)
-                                    } label: {
-                                        if (workspace.color ?? .blue) == color {
-                                            Label(color.label, systemImage: "checkmark")
-                                        } else {
-                                            Text(color.label)
-                                        }
-                                    }
-                                }
-                            }
-                            .disabled(workspace.themeAccent != nil)
-                            Menu("Theme") {
-                                themeButton(workspace, nil, "Default (\(TerminalTheme.named(store.defaultThemeID).name))")
-                                Divider()
-                                ForEach(TerminalTheme.all) { theme in
-                                    themeButton(workspace, theme.id, theme.name)
-                                }
-                            }
-                            Button("Name Claude Sessions") {
-                                store.nameClaudeSessions(store.claudeSessions(in: workspace.id))
-                            }
-                            .disabled(store.claudeSessions(in: workspace.id).isEmpty)
-                            Button("Show in Finder") {
-                                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: workspace.directory)
-                            }
-                            if workspace.id != store.remoteControlWorkspaceID {
-                                Divider()
-                                Button("Move Up") { store.moveWorkspace(workspace.id, by: -1) }
-                                    .disabled(store.sidebarWorkspaces.first?.id == workspace.id)
-                                Button("Move Down") { store.moveWorkspace(workspace.id, by: 1) }
-                                    .disabled(store.sidebarWorkspaces.last?.id == workspace.id)
-                            }
-                            Divider()
-                            Button("Remove Workspace", role: .destructive) { store.removeWorkspace(workspace.id) }
-                        }
                 }
-                // The header has its own button at the left. The system button at the right moved the "+" button.
-                .collapsible(false)
             }
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if store.remoteControl.enabled { RemoteControlBar(store: store) }
         }
+    }
+
+    private func workspaceHeader(_ workspace: Workspace) -> some View {
+        WorkspaceHeader(store: store, workspace: workspace)
+            .draggable(Workspace.dragPrefix + workspace.id.uuidString)
+            .contextMenu {
+                Button("Rename…") { beginRename(.workspace(workspace.id), workspace.name) }
+                Menu(workspace.themeAccent == nil ? "Color" : "Color (the theme sets it)") {
+                    ForEach(WorkspaceColor.allCases) { color in
+                        Button {
+                            store.setWorkspaceColor(workspace.id, to: color)
+                        } label: {
+                            if (workspace.color ?? .blue) == color {
+                                Label(color.label, systemImage: "checkmark")
+                            } else {
+                                Text(color.label)
+                            }
+                        }
+                    }
+                }
+                .disabled(workspace.themeAccent != nil)
+                Menu("Theme") {
+                    themeButton(workspace, nil, "Default (\(TerminalTheme.named(store.defaultThemeID).name))")
+                    Divider()
+                    ForEach(TerminalTheme.all) { theme in
+                        themeButton(workspace, theme.id, theme.name)
+                    }
+                }
+                Button("Name Claude Sessions") {
+                    store.nameClaudeSessions(store.claudeSessions(in: workspace.id))
+                }
+                .disabled(store.claudeSessions(in: workspace.id).isEmpty)
+                Button("Show in Finder") {
+                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: workspace.directory)
+                }
+                if workspace.id != store.remoteControlWorkspaceID {
+                    Divider()
+                    Button("Move Up") { store.moveWorkspace(workspace.id, by: -1) }
+                        .disabled(store.sidebarWorkspaces.first?.id == workspace.id)
+                    Button("Move Down") { store.moveWorkspace(workspace.id, by: 1) }
+                        .disabled(store.sidebarWorkspaces.last?.id == workspace.id)
+                }
+                Divider()
+                Button("Remove Workspace", role: .destructive) { store.removeWorkspace(workspace.id) }
+            }
     }
 
     @ViewBuilder
@@ -306,6 +309,9 @@ struct WorkspaceHeader: View {
                 .menuIndicator(.hidden)
                 .labelStyle(.iconOnly)
                 .fixedSize()
+                // A section header made the button gray. A normal row makes it black, so set the gray here.
+                .foregroundStyle(.secondary)
+                .tint(.secondary)
         }
         .padding(.vertical, 3)
         .padding(.horizontal, 6)
